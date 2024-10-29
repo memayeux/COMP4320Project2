@@ -1,91 +1,81 @@
-// for Socket and ServerSocket
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Scanner;   // for server input
+import java.util.Scanner;
 
 public class ServerTCP {
+    public static void main(String[] args) throws Exception {
+        boolean cont = true;
 
-  public static void main(String args[]) throws Exception {
+        // Verifying args
+        if (args.length != 1) {
+            throw new IllegalArgumentException("Parameter: <portnumber>");
+        }
+        int port = Integer.parseInt(args[0]);   // Receiving Port
 
-    // INITIALIZING SERVER //
+        // Create TCP socket
+        ServerSocket serverSocket = new ServerSocket(port);
 
-    if (args.length != 1)  // Test for correct # of args
-      throw new IllegalArgumentException("Parameter(s): <Port>");
+        Scanner s = new Scanner(System.in);  // Scanner for server termination prompt
 
-    int port = Integer.parseInt(args[0]);   // Receiving Port
-	
-    ServerSocket servSock = new ServerSocket(port);
-    Socket clntSock = servSock.accept();
+        // Response ID:
+        byte tempResponseID = 1;
 
-    boolean cont = true;
-    Scanner s = new Scanner(System.in);
+        // Accept incoming connection
+        try (Socket clientSocket = serverSocket.accept()) {
+            // Create input and output streams for communication with the client
+            InputStream inputStream = clientSocket.getInputStream();
+            OutputStream outputStream = clientSocket.getOutputStream();
 
+            do {
+                // Decode binary-encoded request
+                RequestDecoder decoder = new RequestDecoderBin();
+                Request receivedRequest = decoder.decode(inputStream);
 
-    do {
+                // Signal that request is received
+                System.out.println("Received Request:");
+                System.out.println(receivedRequest);
 
-      byte tempResponseID = 1;
+                // Server calculations (result):
+                int result;
+                switch (receivedRequest.opCode) {
+                    case 0: result = receivedRequest.op1 / receivedRequest.op2; break;
+                    case 1: result = receivedRequest.op1 * receivedRequest.op2; break;
+                    case 2: result = receivedRequest.op1 & receivedRequest.op2; break;
+                    case 3: result = receivedRequest.op1 | receivedRequest.op2; break;
+                    case 4: result = receivedRequest.op1 + receivedRequest.op2; break;
+                    case 5: result = receivedRequest.op1 - receivedRequest.op2; break;
+                    default: throw new IllegalArgumentException("Unknown operand");
+                }
 
-      // RECIEVING REQUEST //
+                // Determine error code
+                byte tempErrorCode = (receivedRequest.tml == (short) (9 + receivedRequest.opNameLength)) ? (byte) 0 : 127;
 
-      // Receive and decode binary-encoded request
-      RequestDecoder decoder = new RequestDecoderBin();
-      Request receivedRequest = decoder.decode(clntSock.getInputStream());
+                // Create response
+                Response response = new Response((short) 8, tempResponseID, result, tempErrorCode);
 
-      // Signal that request is received
-      System.out.println("Received Request:");
-      System.out.println(receivedRequest);
+                // Encode response
+                ResponseEncoder encoder = new ResponseEncoderBin();
+                byte[] codedResponse = encoder.encode(response);
 
+                // Print response object
+                for (int i=0; i<codedResponse.length; i++) {
+                    System.out.print(String.format("0x%02X", codedResponse[i]) + " ");
+                }
+                System.out.println();
 
-      // SENDING RESPONSE //
+                // Send response to client
+                outputStream.write(codedResponse);
+                outputStream.flush();
 
-      // Server calculations (result):
-      int result;
-      switch (receivedRequest.opCode) {
-          case 0: result = receivedRequest.op1 / receivedRequest.op2; break;
-          case 1: result = receivedRequest.op1 * receivedRequest.op2; break;
-          case 2: result = receivedRequest.op1 & receivedRequest.op2; break;
-          case 3: result = receivedRequest.op1 | receivedRequest.op2; break;
-          case 4: result = receivedRequest.op1 + receivedRequest.op2; break;
-          case 5: result = receivedRequest.op1 - receivedRequest.op2; break;
-          default: throw new IllegalArgumentException("Unknown operand");
-      }
+                tempResponseID++;
 
-      // Determine error code
-      byte tempErrorCode = (receivedRequest.tml == (short) (9 + receivedRequest.opNameLength)) ? (byte) 0 : 127;
+            } while (cont);
 
-      // Create a new Response object
-      Response response = new Response((short) 8, tempResponseID, result, tempErrorCode);
+            }
 
-      // Display Response
-      System.out.println("Display Response: ");
-      System.out.println(response);
-
-      // Encodes Response object
-      ResponseEncoder encoder = new ResponseEncoderBin();
-      byte[] codedResponse = encoder.encode(response);
-
-      // Send Response to client
-      /*
-      InetAddress clientAddr = packet.getAddress();
-      int clientPort = packet.getPort();
-      DatagramPacket sendPacket = new DatagramPacket(codedResponse, codedResponse.length, clientAddr, clientPort);
-      sock.send(sendPacket);
-      */
-
-      // Verifies keeping server open
-      System.out.println("Keep server open? (y/n)");
-      String yesNo = s.nextLine();
-      if (!yesNo.equals("y")) {
-          cont = false;
-      }
-
-      tempResponseID++;
-
-  } while (cont);
-
-    s.close();
-    clntSock.close();
-    servSock.close();
-
-  }
+        serverSocket.close();
+        s.close();
+    }
 }
